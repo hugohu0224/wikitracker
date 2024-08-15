@@ -41,7 +41,7 @@ func Streaming(producer sarama.SyncProducer, url string) error {
 			fmt.Printf("Received event: %+v\n", event)
 
 			msg := &sarama.ProducerMessage{
-				Topic: "wikimedia_events",
+				Topic: "wiki_events",
 				Value: sarama.StringEncoder(data),
 			}
 			partition, offset, err := producer.SendMessage(msg)
