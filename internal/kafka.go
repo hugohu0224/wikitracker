@@ -1,11 +1,25 @@
 package internal
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/IBM/sarama"
+	"log"
 	"os"
 	"strings"
+	"sync"
+	"wikitracker/pkg/models"
+	"wikitracker/pkg/tools"
 )
+
+type countsMap struct {
+	EditCounts map[string]int
+	Mutex      sync.RWMutex
+}
+
+var CountsMap = &countsMap{
+	EditCounts: map[string]int{},
+}
 
 func GetProducer() sarama.SyncProducer {
 	config := sarama.NewConfig()
@@ -24,4 +38,36 @@ func GetProducer() sarama.SyncProducer {
 		return nil
 	}
 	return producer
+}
+
+type Consumer struct {
+	Ready chan bool
+}
+
+func (consumer *Consumer) Setup(sarama.ConsumerGroupSession) error {
+	close(consumer.Ready)
+	return nil
+}
+
+func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
+	return nil
+}
+
+func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	for message := range claim.Messages() {
+
+		var wikiEdit models.WikiEdit
+		err := json.Unmarshal(message.Value, &wikiEdit)
+		if err != nil {
+			log.Printf("Error unmarshaling message: %v", err)
+			continue
+		}
+
+		key := tools.ParseKey(message.Key)
+		CountsMap.Mutex.Lock()
+		CountsMap.EditCounts[key] = wikiEdit.EditsCount
+		CountsMap.Mutex.Unlock()
+		session.MarkMessage(message, "")
+	}
+	return nil
 }

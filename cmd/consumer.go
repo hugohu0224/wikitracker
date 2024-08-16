@@ -1,36 +1,29 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"github.com/IBM/sarama"
 	"log"
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"time"
+	"wikitracker/internal"
+	"wikitracker/pkg/tools"
+
+	"github.com/IBM/sarama"
 )
 
-type WikiEdit struct {
-	Title       string `json:"TITLE"`
-	EditsCount  int    `json:"EDITS_COUNT"`
-	WindowStart int    `json:"WINDOW_START"`
-	WindowEnd   int    `json:"WINDOW_END"`
-}
-
-func parseKey(key []byte) string {
-	for i, b := range key {
-		if b == 0 {
-			return string(key[:i])
-		}
-	}
-	return string(key)
-}
+const (
+	consGroup = "consumer-group-07"
+	topic     = "WIKI_EDITS_COUNT_HW"
+)
 
 func main() {
+
 	config := sarama.NewConfig()
 	config.Consumer.Return.Errors = true
+	config.Consumer.Offsets.Initial = sarama.OffsetOldest
 
 	kafkaServers := os.Getenv("KAFKA_SERVER")
 	if kafkaServers == "" {
@@ -39,51 +32,47 @@ func main() {
 
 	servers := strings.Split(kafkaServers, ",")
 
-	consumer, err := sarama.NewConsumer(servers, config)
+	group, err := sarama.NewConsumerGroup(servers, consGroup, config)
 	if err != nil {
-		log.Fatalf("Error creating consumer: %v", err)
+		log.Fatalf("Error creating consumer group: %v", err)
 	}
-	defer consumer.Close()
+	defer group.Close()
 
-	topic := "WIKI_EDITS_COUNT"
-
-	partitionConsumer, err := consumer.ConsumePartition(topic, 0, sarama.OffsetOldest)
-	if err != nil {
-		log.Fatalf("Error creating partition consumer: %v", err)
-	}
-	defer partitionConsumer.Close()
-
-	editCounts := make(map[string]int)
-	var mutex sync.Mutex
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt)
 
 	ticker := time.NewTicker(2 * time.Second)
 
+	consumer := internal.Consumer{
+		Ready: make(chan bool),
+	}
+
+	go func() {
+		for {
+			if err := group.Consume(ctx, []string{topic}, &consumer); err != nil {
+				log.Printf("Error from consumer: %v", err)
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			consumer.Ready = make(chan bool)
+		}
+	}()
+
+	<-consumer.Ready
+
 	for {
 		select {
-		case msg := <-partitionConsumer.Messages():
-			var wikiEdit WikiEdit
-			err := json.Unmarshal(msg.Value, &wikiEdit)
-			if err != nil {
-				log.Printf("Error unmarshaling message: %v", err)
-				continue
-			}
-			key := parseKey(msg.Key)
-			fmt.Println(key)
-			mutex.Lock()
-			editCounts[key] = wikiEdit.EditsCount
-			mutex.Unlock()
-
-		case err := <-partitionConsumer.Errors():
-			log.Printf("Error: %v", err)
-
 		case <-ticker.C:
-			fmt.Println(editCounts["Q129155800"])
-
+			internal.CountsMap.Mutex.RLock()
+			fmt.Println(tools.TopK(internal.CountsMap.EditCounts, 5))
+			internal.CountsMap.Mutex.RUnlock()
 		case <-signals:
 			log.Println("Interrupt is detected")
+			cancel()
 			return
 		}
 	}

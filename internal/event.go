@@ -2,7 +2,7 @@ package internal
 
 import (
 	"encoding/json"
-	"wikitracker/models"
+	"wikitracker/pkg/models"
 )
 
 func JsonToEvent(jsonStr string) (*models.Event, error) {

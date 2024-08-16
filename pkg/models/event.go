@@ -8,3 +8,10 @@ type Event struct {
 	User       string `json:"user"`
 	Bot        bool   `json:"bot"`
 }
+
+type WikiEdit struct {
+	Title       string `json:"TITLE"`
+	EditsCount  int    `json:"EDITS_COUNT"`
+	WindowStart int    `json:"WINDOW_START"`
+	WindowEnd   int    `json:"WINDOW_END"`
+}
