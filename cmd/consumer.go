@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"time"
 	"wikitracker/internal"
 	"wikitracker/pkg/tools"
@@ -20,7 +21,6 @@ const (
 )
 
 func main() {
-
 	config := sarama.NewConfig()
 	config.Consumer.Return.Errors = true
 	config.Consumer.Offsets.Initial = sarama.OffsetOldest
@@ -50,7 +50,10 @@ func main() {
 		Ready: make(chan bool),
 	}
 
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for {
 			if err := group.Consume(ctx, []string{topic}, &consumer); err != nil {
 				log.Printf("Error from consumer: %v", err)
@@ -73,6 +76,7 @@ func main() {
 		case <-signals:
 			log.Println("Interrupt is detected")
 			cancel()
+			wg.Wait()
 			return
 		}
 	}
