@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Wikitracker</title>
+</head>
+<body>
+<h1>Wikitracker</h1>
+<ul id="messages"></ul>
+
+<script>
+    var socket = new WebSocket("ws://localhost:8080/ws");
+
+    socket.onmessage = function(event) {
+        var li = document.createElement("li");
+        li.appendChild(document.createTextNode(event.data));
+        document.getElementById("messages").appendChild(li);
+    };
+</script>
+</body>
+</html>
