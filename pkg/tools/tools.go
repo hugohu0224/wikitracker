@@ -5,7 +5,7 @@ import (
 	"strconv"
 )
 
-func ParseKey(key []byte) string {
+func ParseKeyToString(key []byte) string {
 	for i, b := range key {
 		if b == 0 {
 			return string(key[:i])
@@ -17,6 +17,7 @@ func ParseKey(key []byte) string {
 type Item struct {
 	title string
 	count int
+	url   string
 }
 
 type MaxHeap []Item

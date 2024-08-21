@@ -16,21 +16,19 @@ import (
 )
 
 const (
-	consGroup = "consumer-group-07"
-	topic     = "WIKI_EDITS_COUNT_HW"
+	consGroup = "consumer-group-11"
+	topic     = "WIKI_EDITS_COUNT_HW_2"
 )
 
 type Consumer struct {
 	Ready chan bool
 }
 
-type countsMap struct {
+type Message struct {
 	EditCounts map[string]int
+	Title      string
+	Url        string
 	Mutex      sync.RWMutex
-}
-
-var CountsMap = &countsMap{
-	EditCounts: map[string]int{},
 }
 
 func (consumer *Consumer) Setup(sarama.ConsumerGroupSession) error {
@@ -45,17 +43,26 @@ func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
 func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for message := range claim.Messages() {
 
-		var wikiEdit models.WikiEdit
-		err := json.Unmarshal(message.Value, &wikiEdit)
+		var editInfo models.WikiEditInfo
+		var editInfoKey models.WikiEditInfoKey
+		err := json.Unmarshal(message.Value, &editInfo)
+		if err != nil {
+			log.Printf("Error unmarshaling message: %v", err)
+			continue
+		}
+		key := tools.ParseKeyToString(message.Key)
+		err = json.Unmarshal([]byte(key), &editInfoKey)
 		if err != nil {
 			log.Printf("Error unmarshaling message: %v", err)
 			continue
 		}
 
-		key := tools.ParseKey(message.Key)
-		CountsMap.Mutex.Lock()
-		CountsMap.EditCounts[key] = wikiEdit.EditsCount
-		CountsMap.Mutex.Unlock()
+		editInfo.Title = editInfoKey.Title
+		editInfo.Url = editInfoKey.Url
+
+		// testing
+		fmt.Println(editInfo)
+
 		session.MarkMessage(message, "")
 	}
 	return nil
@@ -111,9 +118,7 @@ func StartConsuming(group sarama.ConsumerGroup) {
 	for {
 		select {
 		case <-ticker.C:
-			CountsMap.Mutex.RLock()
-			fmt.Println(tools.TopK(CountsMap.EditCounts, 5))
-			CountsMap.Mutex.RUnlock()
+			//fmt.Println(tools.TopK(CountsMap.EditCounts, 5))
 		case <-signals:
 			log.Println("Interrupt is detected")
 			cancel()
