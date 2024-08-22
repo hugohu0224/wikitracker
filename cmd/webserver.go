@@ -5,10 +5,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"log"
 	"net/http"
+	"wikitracker/initial"
 	"wikitracker/internal"
 )
 
 func main() {
+
+	initial.InitCountTracker()
+	go initial.InitCountScan()
+	go initial.InitShowTimestamp()
 	group, err := internal.InitConsumerGroup()
 	if err != nil {
 		log.Fatalf("Failed to initialize consumer group: %v", err)
@@ -24,7 +29,6 @@ func main() {
 			"status": "ok",
 		})
 	})
-
 	// default page
 	r.GET("/wikitrack")
 }

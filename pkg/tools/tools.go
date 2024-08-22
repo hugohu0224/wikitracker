@@ -1,8 +1,9 @@
 package tools
 
 import (
-	"container/heap"
-	"strconv"
+	"sort"
+	"sync"
+	"wikitracker/pkg/models"
 )
 
 func ParseKeyToString(key []byte) string {
@@ -14,45 +15,43 @@ func ParseKeyToString(key []byte) string {
 	return string(key)
 }
 
-type Item struct {
-	title string
-	count int
-	url   string
+type CountTracker struct {
+	WikiEditInfo map[int64]map[string]*models.WikiEditInfo
+	topK         []*models.WikiEditInfo
+	Mu           sync.RWMutex
+	k            int
 }
 
-type MaxHeap []Item
-
-func (h MaxHeap) Len() int           { return len(h) }
-func (h MaxHeap) Less(i, j int) bool { return h[i].count > h[j].count }
-func (h MaxHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *MaxHeap) Push(x interface{}) {
-	*h = append(*h, x.(Item))
-}
-
-func (h *MaxHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	x := old[n-1]
-	*h = old[0 : n-1]
-	return x
-}
-
-func TopK(editCounts map[string]int, k int) []map[string]string {
-	h := &MaxHeap{}
-	heap.Init(h)
-
-	for title, count := range editCounts {
-		heap.Push(h, Item{title: title, count: count})
+func NewCountTracker(k int) *CountTracker {
+	return &CountTracker{
+		WikiEditInfo: make(map[int64]map[string]*models.WikiEditInfo),
+		topK:         make([]*models.WikiEditInfo, 0, k),
+		Mu:           sync.RWMutex{},
+		k:            k,
 	}
+}
 
-	result := make([]map[string]string, 0, k)
-	for i := 0; i < k && h.Len() > 0; i++ {
-		item := heap.Pop(h).(Item)
-		resultMap := map[string]string{
-			"title": item.title,
-			"count": strconv.Itoa(item.count),
+func (ct *CountTracker) GetTopKByStartTime(timestamp int64) []*models.WikiEditInfo {
+	ct.Mu.RLock()
+	defer ct.Mu.RUnlock()
+
+	topK := make([]*models.WikiEditInfo, ct.k)
+
+	// sub sort
+	for _, info := range ct.WikiEditInfo[timestamp] {
+		if len(topK) < ct.k {
+			topK = append(topK, info)
+			if len(topK) == ct.k {
+				sort.Slice(topK, func(i, j int) bool {
+					return topK[i].EditsCount > topK[j].EditsCount
+				})
+			}
+		} else if info.EditsCount > topK[ct.k-1].EditsCount {
+			topK[ct.k-1] = info
+			for i := ct.k - 1; i > 0 && topK[i].EditsCount > topK[i-1].EditsCount; i-- {
+				topK[i], topK[i-1] = topK[i-1], topK[i]
+			}
 		}
-		result = append(result, resultMap)
 	}
-	return result
+	return topK
 }

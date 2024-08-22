@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/IBM/sarama"
 	"log"
@@ -10,13 +11,14 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
-	"time"
+	"syscall"
+	"wikitracker/global"
 	"wikitracker/pkg/models"
 	"wikitracker/pkg/tools"
 )
 
 const (
-	consGroup = "consumer-group-11"
+	consGroup = "consumer-group-16"
 	topic     = "WIKI_EDITS_COUNT_HW_2"
 )
 
@@ -42,7 +44,6 @@ func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
 
 func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for message := range claim.Messages() {
-
 		var editInfo models.WikiEditInfo
 		var editInfoKey models.WikiEditInfoKey
 		err := json.Unmarshal(message.Value, &editInfo)
@@ -59,9 +60,18 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 
 		editInfo.Title = editInfoKey.Title
 		editInfo.Url = editInfoKey.Url
+		timeKey := editInfo.WindowStart
+
+		if _, exists := global.Ct.WikiEditInfo[timeKey]; !exists {
+			global.Ct.Mu.Lock()
+			global.Ct.WikiEditInfo[timeKey] = make(map[string]*models.WikiEditInfo)
+			global.Ct.Mu.Unlock()
+		}
 
 		// testing
-		fmt.Println(editInfo)
+		global.Ct.Mu.Lock()
+		global.Ct.WikiEditInfo[timeKey][editInfo.Title] = &editInfo
+		global.Ct.Mu.Unlock()
 
 		session.MarkMessage(message, "")
 	}
@@ -98,35 +108,33 @@ func StartConsuming(group sarama.ConsumerGroup) {
 		defer wg.Done()
 		for {
 			if err := group.Consume(ctx, []string{topic}, &consumer); err != nil {
+				if errors.Is(err, sarama.ErrClosedConsumerGroup) {
+					log.Println("consumer group has been closed")
+					return
+				}
 				log.Printf("Error from consumer: %v", err)
 			}
 			if ctx.Err() != nil {
 				return
 			}
-			consumer.Ready = make(chan bool)
 		}
 	}()
 
 	<-consumer.Ready
+	log.Println("consumer is running")
 
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt)
-
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			//fmt.Println(tools.TopK(CountsMap.EditCounts, 5))
-		case <-signals:
-			log.Println("Interrupt is detected")
-			cancel()
-			wg.Wait()
-			group.Close()
-			return
-		}
+	sigterm := make(chan os.Signal, 1)
+	signal.Notify(sigterm, syscall.SIGINT, syscall.SIGTERM)
+	select {
+	case <-sigterm:
+		log.Println("received termination signal, initiating shutdown")
+		cancel()
+	case <-ctx.Done():
+		log.Println("context cancelled, shutting down")
 	}
+
+	wg.Wait()
+	log.Println("consumer has been shut down")
 }
 
 func GetProducer() sarama.SyncProducer {
