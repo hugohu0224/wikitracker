@@ -12,7 +12,7 @@ This project is a real-time Wikipedia edit tracking system built using Golang, A
 
 ## Prerequisites
 
-- Docker version 27.1.1
+- Docker 27.1.1
 - Docker Compose 2.29.1
 - Go 1.21
 
@@ -79,7 +79,7 @@ This project is a real-time Wikipedia edit tracking system built using Golang, A
     go build -o webserver ./cmd/webserver.go
    
    // run
-    nohup ./webserver > webserver.log 2>&1 &
+    nohup ./producer > producer.log 2>&1 &
     nohup ./webserver > webserver.log 2>&1 &
    ```
 
